@@ -60,6 +60,15 @@ static inline void unset_flag(tfsxml_string* priv, int offset)
     priv->flags &= ~(1 << offset);
 }
 
+#define set_is_in_element_header() set_flag(priv, 0)
+#define get_is_in_element_header() get_flag(priv, 0)
+#define unset_is_in_element_header() unset_flag(priv, 0)
+#define set_previous_element_is_closed() set_flag(priv, 1)
+#define get_previous_element_is_closed() get_flag(priv, 1)
+#define unset_previous_element_is_closed() unset_flag(priv, 1)
+
+#define set_must_be_decoded() set_flag(v, 0)
+
 static inline void next_char(tfsxml_string* priv)
 {
     priv->buf++;
@@ -142,7 +151,7 @@ int tfsxml_init(tfsxml_string* priv, const void* buf, int len)
     priv->buf = (const char*)buf;
     priv->len = len;
     priv->flags = 0;
-    set_flag(priv, 1);
+    set_previous_element_is_closed();
 
     return 0;
 }
@@ -152,11 +161,11 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n)
     int level;
 
     /* Exiting previous element header analysis if needed */
-    if (get_flag(priv, 0) && tfsxml_leave_element_header(priv))
+    if (get_is_in_element_header() && tfsxml_leave_element_header(priv))
         return -1;
 
     /* Leaving previous element content if needed */
-    if (!get_flag(priv, 1) && tfsxml_leave(priv))
+    if (!get_previous_element_is_closed() && tfsxml_leave(priv))
         return -1;
 
     level = 0;
@@ -176,7 +185,7 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n)
                 n->len = priv->buf - n->buf;
                 if (priv->len)
                     next_char(priv);
-                set_flag(priv, 1);
+                set_previous_element_is_closed();
                 return 0;
             }
             if (priv->len && *priv->buf == '!')
@@ -235,7 +244,7 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n)
                 n->len = priv->buf - n->buf;
                 if (priv->len)
                     next_char(priv);
-                set_flag(priv, 1);
+                set_previous_element_is_closed();
                 return 0;
             }
             if (*priv->buf == '/')
@@ -247,7 +256,7 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n)
                 {
                     n->buf = NULL;
                     n->len = 0;
-                    set_flag(priv, 1);
+                    set_previous_element_is_closed();
                     return -1;
                 }
                 level--;
@@ -270,8 +279,8 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n)
                     case '/':
                     case '>':
                         n->len = priv->buf - n->buf;
-                        set_flag(priv, 0);
-                        unset_flag(priv, 1);
+                        set_is_in_element_header();
+                        unset_previous_element_is_closed();
                         return 0;
                     default:;
                     }
@@ -286,14 +295,14 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n)
     }
     n->buf = NULL;
     n->len = 0;
-    unset_flag(priv, 0);
-    unset_flag(priv, 1);
+    unset_is_in_element_header();
+    unset_previous_element_is_closed();
     return -1;
 }
 
 int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v)
 {
-    if (!get_flag(priv, 0))
+    if (!get_is_in_element_header())
         return -1;
 
     v->flags = 0;
@@ -307,7 +316,7 @@ int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v)
         case ' ':
             break;
         case '/':
-            set_flag(priv, 1);
+            set_previous_element_is_closed();
             break;
         case '>':
             next_char(priv);
@@ -316,7 +325,7 @@ int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v)
             v->buf = NULL;
             v->len = 0;
             v->flags = 0;
-            unset_flag(priv, 0);
+            unset_is_in_element_header();
             return -1;
         default:
         {
@@ -341,7 +350,7 @@ int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v)
             while (priv->len && *priv->buf != quote)
             {
                 if (*priv->buf == '&')
-                    set_flag(v, 0);
+                    set_is_in_element_header();
                 next_char(priv);
             }
             v->len = priv->buf - v->buf;
@@ -359,7 +368,7 @@ int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v)
     v->buf = NULL;
     v->len = 0;
     v->flags = 0;
-    unset_flag(priv, 0);
+    unset_is_in_element_header();
     return -1;
 }
 
@@ -371,14 +380,14 @@ int tfsxml_value(tfsxml_string* priv, tfsxml_string* v)
 
     /* Exiting previous element header analysis if needed */
     int is_first = 0;
-    if (get_flag(priv, 0))
+    if (get_is_in_element_header())
     {
         if (tfsxml_leave_element_header(priv))
             return -1;
         is_first = 1;
 
         /* Previous element must not be finished */
-        if (get_flag(priv, 1))
+        if (get_previous_element_is_closed())
             return -1;
     }
 
@@ -389,7 +398,7 @@ int tfsxml_value(tfsxml_string* priv, tfsxml_string* v)
         switch (*priv->buf)
         {
         case '&':
-            set_flag(v, 0);
+            set_must_be_decoded();
             break;
         case '<':
             if (priv->len == len_sav && priv->len > 8)
@@ -431,7 +440,7 @@ int tfsxml_value(tfsxml_string* priv, tfsxml_string* v)
             v->buf = priv->buf - v->len;
             if (is_first)
             {
-                unset_flag(priv, 1);
+                unset_previous_element_is_closed();
                 tfsxml_leave(priv);
             }
             return 0;
@@ -449,14 +458,14 @@ int tfsxml_value(tfsxml_string* priv, tfsxml_string* v)
 int tfsxml_enter(tfsxml_string* priv)
 {
     /* Exiting previous element header analysis if needed */
-    if (get_flag(priv, 0) && tfsxml_leave_element_header(priv))
+    if (get_is_in_element_header() && tfsxml_leave_element_header(priv))
         return -1;
 
     /* Previous element must not be finished */
-    if (get_flag(priv, 1))
+    if (get_previous_element_is_closed())
         return -1;
 
-    set_flag(priv, 1);
+    set_previous_element_is_closed();
     return 0;
 }
 
@@ -465,10 +474,10 @@ int tfsxml_leave(tfsxml_string* priv)
     int level;
 
     /* Exiting previous element header analysis if needed */
-    if (get_flag(priv, 0) && tfsxml_leave_element_header(priv))
+    if (get_is_in_element_header() && tfsxml_leave_element_header(priv))
         return -1;
 
-    level = get_flag(priv, 1) ? 1 : 0;
+    level = get_previous_element_is_closed() ? 1 : 0;
     while (priv->len)
     {
         switch (*priv->buf)
@@ -483,7 +492,7 @@ int tfsxml_leave(tfsxml_string* priv)
                         next_char(priv);
                     if (priv->len)
                         next_char(priv);
-                    set_flag(priv, 1);
+                    set_previous_element_is_closed();
                     return 0;
                 }
                 level--;
@@ -499,7 +508,7 @@ int tfsxml_leave(tfsxml_string* priv)
                 }
                 if (priv->len)
                     next_char(priv);
-                set_flag(priv, 1);
+                set_previous_element_is_closed();
                 break;
             }
             if (priv->len && *priv->buf == '!')
@@ -573,8 +582,8 @@ int tfsxml_leave(tfsxml_string* priv)
                 case ' ':
                 case '/':
                 case '>':
-                    set_flag(priv, 0);
-                    unset_flag(priv, 1);
+                    set_is_in_element_header();
+                    unset_previous_element_is_closed();
                     split = 1;
                     break;
                 default:;
@@ -585,7 +594,7 @@ int tfsxml_leave(tfsxml_string* priv)
             }
             if (tfsxml_leave_element_header(priv))
                 return -1;
-            if (!get_flag(priv, 1))
+            if (!get_previous_element_is_closed())
                 level++;
             break;
         default:;
@@ -593,8 +602,7 @@ int tfsxml_leave(tfsxml_string* priv)
         }
     }
 
-    set_flag(priv, 1);
-    set_flag(priv, 3);
+    set_previous_element_is_closed();
     return 0;
 }
 

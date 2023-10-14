@@ -75,21 +75,28 @@ static inline void next_char(tfsxml_string* priv)
     priv->len--;
 }
 
-static inline int tfsxml_leave_element_header(tfsxml_string* priv)
+static int tfsxml_leave_element_header(tfsxml_string* priv)
 {
     /* Skip attributes */
     tfsxml_string n, v;
-    while (!tfsxml_attr(priv, &n, &v));
-
-    return 0;
+    for (;;) {
+        int result = tfsxml_attr(priv, &n, &v);
+        switch (result) {
+            case -1: {
+                return 0;
+            }
+            default: {
+            }
+        }
+    }
 }
 
 int tfsxml_strcmp_charp(tfsxml_string a, const char* b)
 {
-    /* Compare char per charand return the difference if chars are no equal */
+    /* Compare char per char and return the difference if chars are no equal */
     for (; a.len && *b; a.buf++, a.len--, b++)
     {
-        char c = *a.buf - *b;
+        int c = *a.buf - *b;
         if (c)
             return c;
     }
@@ -161,12 +168,20 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n)
     int level;
 
     /* Exiting previous element header analysis if needed */
-    if (get_is_in_element_header() && tfsxml_leave_element_header(priv))
-        return -1;
+    if (get_is_in_element_header()) {
+        int result = tfsxml_leave_element_header(priv);
+        if (result) {
+            return result;
+        }
+    }
 
     /* Leaving previous element content if needed */
-    if (!get_previous_element_is_closed() && tfsxml_leave(priv))
-        return -1;
+    if (!get_previous_element_is_closed()) {
+        int result = tfsxml_leave(priv);
+        if (result) {
+            return result;
+        }
+    }
 
     level = 0;
     while (priv->len)
@@ -302,8 +317,9 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n)
 
 int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v)
 {
-    if (!get_is_in_element_header())
+    if (!get_is_in_element_header()) {
         return -1;
+    }
 
     v->flags = 0;
     while (priv->len)
@@ -380,10 +396,11 @@ int tfsxml_value(tfsxml_string* priv, tfsxml_string* v)
 
     /* Exiting previous element header analysis if needed */
     int is_first = 0;
-    if (get_is_in_element_header())
-    {
-        if (tfsxml_leave_element_header(priv))
-            return -1;
+    if (get_is_in_element_header()) {
+        int result = tfsxml_leave_element_header(priv);
+        if (result) {
+            return result;
+        }
         is_first = 1;
 
         /* Previous element must not be finished */
@@ -457,9 +474,13 @@ int tfsxml_value(tfsxml_string* priv, tfsxml_string* v)
 
 int tfsxml_enter(tfsxml_string* priv)
 {
-    /* Exiting previous element header analysis if needed */
-    if (get_is_in_element_header() && tfsxml_leave_element_header(priv))
-        return -1;
+    /* Exiting previous element header if needed */
+    if (get_is_in_element_header()) {
+        int result = tfsxml_leave_element_header(priv);
+        if (result) {
+            return result;
+        }
+    }
 
     /* Previous element must not be finished */
     if (get_previous_element_is_closed())
@@ -474,8 +495,12 @@ int tfsxml_leave(tfsxml_string* priv)
     int level;
 
     /* Exiting previous element header analysis if needed */
-    if (get_is_in_element_header() && tfsxml_leave_element_header(priv))
-        return -1;
+    if (get_is_in_element_header()) {
+        int result = tfsxml_leave_element_header(priv);
+        if (result) {
+            return result;
+        }
+    }
 
     level = get_previous_element_is_closed() ? 1 : 0;
     while (priv->len)

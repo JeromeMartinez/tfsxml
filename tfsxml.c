@@ -75,32 +75,6 @@ static inline int tfsxml_leave_element_header(tfsxml_string* priv)
     return 0;
 }
 
-
-static inline int tfsxml_has_value(tfsxml_string* v)
-{
-    int is_end = 0;
-    const char* buf = v->buf;
-    int len = v->len;
-    while (len && !is_end)
-    {
-        switch (*buf)
-        {
-        case '\n':
-        case '\t':
-        case '\r':
-        case ' ':
-            buf++;
-            len--;
-            break;
-        default:
-            is_end = 1;
-        }
-    }
-    if (is_end)
-        return 0;
-    return -1;
-}
-
 int tfsxml_strcmp_charp(tfsxml_string a, const char* b)
 {
     /* Compare char per charand return the difference if chars are no equal */
@@ -455,11 +429,6 @@ int tfsxml_value(tfsxml_string* priv, tfsxml_string* v)
             }
             v->len = len_sav - priv->len;
             v->buf = priv->buf - v->len;
-            if (tfsxml_has_value(v))
-            {
-                *priv = priv_bak;
-                return -1;
-            }
             if (is_first)
             {
                 unset_flag(priv, 1);
@@ -474,11 +443,6 @@ int tfsxml_value(tfsxml_string* priv, tfsxml_string* v)
     v->len = len_sav;
     v->buf = priv->buf - v->len;
     v->flags = 0;
-    if (tfsxml_has_value(v))
-    {
-        *priv = priv_bak;
-        return -1;
-    }
     return 0;
 }
 

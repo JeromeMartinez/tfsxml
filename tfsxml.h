@@ -46,8 +46,7 @@ extern "C"
  *
  * @note after init, priv should not be directly used (data may be something else than a buf/len pair)
  */
-    typedef struct tfsxml_string
-{
+typedef struct tfsxml_string {
     const char* buf;
     int         len;
     int         flags;

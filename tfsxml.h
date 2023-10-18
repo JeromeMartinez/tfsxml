@@ -69,6 +69,7 @@ int tfsxml_init(tfsxml_string* priv, const void* buf, int len);
  *
  * @return  0 if an element is available at the current level
  *          -1 if no element is available at the current level
+ *          1 if need of more data
  */
 int tfsxml_next(tfsxml_string* priv, tfsxml_string* n);
 
@@ -80,6 +81,7 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n);
  *
  * @return  0 if an attribute is available for the current element
  *          -1 if no more attribute is available for the current element
+ *          1 if need of more data
  */
 int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v);
 
@@ -90,6 +92,7 @@ int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v);
  *
  * @return  0 if a value is available for the current element
  *          -1 if no value is available for the current element
+ *          1 if need of more data
  *
  * @note if this element has sub-elements, the whole content (all sub-elements) are provided
  */
@@ -101,6 +104,7 @@ int tfsxml_value(tfsxml_string* priv, tfsxml_string* v);
  *
  * @return  0 if it is possible to enter in an element
  *          -1 if it is not possible to enter in an element
+ *          1 if need of more data
  */
 int tfsxml_enter(tfsxml_string* priv);
 
@@ -110,6 +114,7 @@ int tfsxml_enter(tfsxml_string* priv);
  *
  * @return  0 if it is possible to leave an element
  *          -1 if it is not possible to leave an element
+ *          1 if need of more data
  */
 int tfsxml_leave(tfsxml_string* priv);
 

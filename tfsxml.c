@@ -66,6 +66,20 @@ static inline void unset_flag(tfsxml_string* priv, int offset) {
 
 #define set_must_be_decoded() set_flag(v, 0)
 
+static inline void set_level(tfsxml_string* priv, int level)
+{
+    const int offset = (sizeof(priv->flags) - 1) * 8;
+    priv->flags <<= 8;
+    priv->flags >>= 8;
+    priv->flags |= level << offset;
+}
+
+static inline void get_level(tfsxml_string* priv, int* level)
+{
+    const int offset = (sizeof(priv->flags) - 1) * 8;
+    *level = priv->flags >> offset;
+}
+
 static inline void next_char(tfsxml_string* priv) {
     priv->buf++;
     priv->len--;
@@ -79,6 +93,9 @@ static int tfsxml_leave_element_header(tfsxml_string* priv) {
         switch (result) {
             case -1: {
                 return 0;
+            }
+            case 1: {
+                return 1;
             }
             default: {
             }
@@ -151,10 +168,13 @@ int tfsxml_init(tfsxml_string* priv, const void* buf, int len) {
 }
 
 int tfsxml_next(tfsxml_string* priv, tfsxml_string* n) {
+    tfsxml_string priv_bak;
     int level;
 
+    get_level(priv, &level);
+
     /* Exiting previous element header analysis if needed */
-    if (get_is_in_element_header()) {
+    if (!level && get_is_in_element_header()) {
         int result = tfsxml_leave_element_header(priv);
         if (result) {
             return result;
@@ -162,42 +182,75 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n) {
     }
 
     /* Leaving previous element content if needed */
-    if (!get_previous_element_is_closed()) {
+    if (level || !get_previous_element_is_closed()) {
+        if (!level && !get_previous_element_is_closed()) {
+            level++;
+            set_level(priv, level);
+        }
         int result = tfsxml_leave(priv);
         if (result) {
             return result;
         }
+        get_level(priv, &level);
     }
 
-    level = 0;
+    priv_bak = *priv;
     while (priv->len) {
         switch (*priv->buf) {
             case '<': {
-                next_char(priv);
-                if (!priv->len) {
-                    return -1;
+                if (priv->len == 1) {
+                    *priv = priv_bak;
+                    set_level(priv, level);
+                    return 1;
                 }
-                if (*priv->buf == '?') {
+                if (priv->buf[1] == '/') {
+                    while (priv->len && *priv->buf != '>') {
+                        next_char(priv);
+                    }
+                    if (!priv->len) {
+                        *priv = priv_bak;
+                        set_level(priv, level);
+                        return 1;
+                    }
+                    if (!level) {
+                        next_char(priv);
+                        set_previous_element_is_closed();
+                        set_level(priv, level);
+                        return -1;
+                    }
+                    level--;
+                    break;
+                }
+                if (priv->buf[1] == '?') {
+                    next_char(priv);
                     n->buf = priv->buf;
                     while (priv->len && *priv->buf != '>') {
                         next_char(priv);
                     }
                     if (!priv->len) {
-                        return -1;
+                        *priv = priv_bak;
+                        set_level(priv, level);
+                        return 1;
                     }
                     n->len = priv->buf - n->buf;
                     next_char(priv);
                     set_previous_element_is_closed();
+                    set_level(priv, 0);
                     return 0;
                 }
-                if (*priv->buf == '!') {
+                if (priv->buf[1] == '!') {
                     unsigned long long probe = 0;
                     int i;
-                    for (i = 1; i < 8; i++) {
+                    if (priv->len <= 8) {
+                        *priv = priv_bak;
+                        set_level(priv, level);
+                        return 1;
+                    }
+                    for (i = 2; i <= 8; i++) {
                         probe <<= 8;
                         probe |= priv->buf[i];
                     }
-                    if (probe == 0x5B43444154415BULL) { /* "[CDATA[" */
+                    if (probe == 0x5B43444154415BULL) { /* "<![CDATA[" */
                         probe = 0;
                         priv->buf += 9;
                         priv->len -= 9;
@@ -208,65 +261,62 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n) {
                             if (probe == 0x5D5D3EULL) { /* "]]>" */
                                 break;
                             }
-                            priv->buf++;
-                            priv->len--;
+                            next_char(priv);
+                        }
+                        if (!priv->len) {
+                            *priv = priv_bak;
+                            set_level(priv, level);
+                            return 1;
                         }
                         break;
                     }
-                    n->buf = priv->buf;
-                    if (priv->len >= 3 && priv->buf[1] == '-' && priv->buf[2] == '-') {
-                        int len_sav = priv->len;
-                        const char* buf = priv->buf + 3;
-                        int len = priv->len - 3;
+                    if ((probe >> 40) == 0x2D2D) { /* "<!--" */
+                        n->buf = priv->buf;
                         probe = 0;
-                        while (len) {
+                        priv->buf += 4;
+                        priv->len -= 4;
+                        while (priv->len) {
                             probe &= 0xFFFF;
                             probe <<= 8;
-                            probe |= *buf;
+                            probe |= *priv->buf;
                             if (probe == 0x2D2D3EULL) /* "-->" */
                                 break;
-                            buf++;
-                            len--;
-                        }
-                        n->buf = priv->buf;
-                        n->len = len_sav - len;
-                        priv->buf += n->len;
-                        priv->len -= n->len;
-                        if (priv->len)
                             next_char(priv);
+                        }
+                        if (!priv->len) {
+                            *priv = priv_bak;
+                            set_level(priv, level);
+                            return 1;
+                        }
+                        n->len = priv->buf - n->buf;
+                        next_char(priv);
+                        set_previous_element_is_closed();
+                        set_level(priv, 0);
                         return 0;
                     }
                     while (priv->len && *priv->buf != '>') {
                         next_char(priv);
                     }
                     if (!priv->len) {
-                        return -1;
+                        *priv = priv_bak;
+                        set_level(priv, level);
+                        return 1;
                     }
+                    n->buf = priv_bak.buf;
                     n->len = priv->buf - n->buf;
                     next_char(priv);
                     set_previous_element_is_closed();
+                    set_level(priv, 0);
                     return 0;
                 }
-                if (*priv->buf == '/') {
-                    while (priv->len && *priv->buf != '>') {
-                        next_char(priv);
-                    }
-                    if (!priv->len) {
-                        return -1;
-                    }
-                    if (!level) {
-                        next_char(priv);
-                        set_previous_element_is_closed();
-                        return -1;
-                    }
-                    level--;
-                    break;
-                }
                 if (!level) {
+                    next_char(priv);
                     n->buf = priv->buf;
                     for (;;) {
                         if (!priv->len) {
-                            return -1;
+                            *priv = priv_bak;
+                            set_level(priv, level);
+                            return 1;
                         }
 
                         switch (*priv->buf) {
@@ -279,6 +329,7 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n) {
                                 n->len = priv->buf - n->buf;
                                 set_is_in_element_header();
                                 unset_previous_element_is_closed();
+                                set_level(priv, 0);
                                 return 0;
                             default: {
                             }
@@ -294,7 +345,8 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n) {
         }
         next_char(priv);
     }
-    return -1;
+    set_level(priv, level);
+    return 1;
 }
 
 int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v) {
@@ -303,6 +355,7 @@ int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v) {
     }
 
     v->flags = 0;
+    tfsxml_string priv_bak = *priv;
     while (priv->len) {
         switch (*priv->buf) {
             case '/': {
@@ -331,7 +384,8 @@ int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v) {
                     next_char(priv);
                 }
                 if (!priv->len) {
-                    return -1;
+                    *priv = priv_bak;
+                    return 1;
                 }
                 n->len = priv->buf - n->buf;
                 next_char(priv);
@@ -339,19 +393,21 @@ int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v) {
                 /* Value */
                 const char quote = *priv->buf;
                 if (!priv->len) {
-                    return -1;
+                    *priv = priv_bak;
+                    return 1;
                 }
                 next_char(priv);
                 v->buf = priv->buf;
                 while (priv->len && *priv->buf != quote) {
                     if (*priv->buf == '&') {
-                        set_is_in_element_header();
+                        set_flag(v, 0);
                     }
                     next_char(priv);
                 }
                 v->len = priv->buf - v->buf;
                 if (!priv->len) {
-                    return -1;
+                    *priv = priv_bak;
+                    return 1;
                 }
                 next_char(priv);
                 return 0;
@@ -359,11 +415,12 @@ int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v) {
         }
         next_char(priv);
     }
-    return -1;
+    *priv = priv_bak;
+    return 1;
 }
 
 int tfsxml_value(tfsxml_string* priv, tfsxml_string* v) {
-    tfsxml_string priv_bak = *priv;
+    tfsxml_string priv_bak;
     int len_sav;
 
     /* Exiting previous element header analysis if needed */
@@ -379,6 +436,7 @@ int tfsxml_value(tfsxml_string* priv, tfsxml_string* v) {
         }
     }
 
+    priv_bak = *priv;
     len_sav = priv->len;
     v->flags = 0;
     while (priv->len) {
@@ -388,43 +446,51 @@ int tfsxml_value(tfsxml_string* priv, tfsxml_string* v) {
                 break;
             }
             case '<': {
-                if (priv->len == len_sav && priv->len > 8) {
+                if (priv->len == 1) {
+                    *priv = priv_bak;
+                    return 1;
+                }
+                if (priv->buf[1] == '!') {
+                    if (priv->len <= 8) {
+                        *priv = priv_bak;
+                        return 1;
+                    }
                     unsigned long long probe = 0;
                     int i;
-                    for (i = 1; i <= 8; i++) {
+                    for (i = 2; i <= 8; i++) {
                         probe <<= 8;
                         probe |= priv->buf[i];
                     }
-                    if (probe == 0x215B43444154415BULL) { /* "![CDATA[" */
-                        const char* buf = priv->buf + 9;
-                        int len = priv->len - 9;
+                    if (probe == 0x5B43444154415BULL) { /* "<![CDATA[" */
+                        set_must_be_decoded();
                         probe = 0;
-                        while (len) {
+                        priv->buf += 9;
+                        priv->len -= 9;
+                        while (priv->len) {
                             probe &= 0xFFFF;
                             probe <<= 8;
-                            probe |= *buf;
+                            probe |= *priv->buf;
                             if (probe == 0x5D5D3EULL) { /* "]]>" */
                                 break;
                             }
-                            buf++;
-                            len--;
+                            next_char(priv);
                         }
-                        v->buf = priv->buf;
-                        v->len = len_sav - len;
-                        if (v->len < priv->len) {
-                            v->len++;
+                        if (!priv->len) {
+                            *priv = priv_bak;
+                            return 1;
                         }
-                        priv->buf += v->len;
-                        priv->len -= v->len;
-                        v->buf += 9;
-                        v->len -= 12;
-                        return 0;
+                        break;
                     }
                 }
                 v->len = len_sav - priv->len;
                 v->buf = priv->buf - v->len;
                 unset_previous_element_is_closed();
-                tfsxml_leave(priv);
+                set_level(priv, 1);
+                int result = tfsxml_leave(priv);
+                if (result) {
+                    *priv = priv_bak;
+                    return result;
+                }
                 return 0;
             }
             default: {
@@ -432,7 +498,8 @@ int tfsxml_value(tfsxml_string* priv, tfsxml_string* v) {
         }
         next_char(priv);
     }
-    return -1;
+    *priv = priv_bak;
+    return 1;
 }
 
 int tfsxml_enter(tfsxml_string* priv) {
@@ -454,7 +521,10 @@ int tfsxml_enter(tfsxml_string* priv) {
 }
 
 int tfsxml_leave(tfsxml_string* priv) {
+    tfsxml_string priv_bak;
     int level;
+
+    get_level(priv, &level);
 
     /* Exiting previous element header analysis if needed */
     if (get_is_in_element_header()) {
@@ -462,54 +532,66 @@ int tfsxml_leave(tfsxml_string* priv) {
         if (result) {
             return result;
         }
+        if (!get_previous_element_is_closed()) {
+            level++;
+        }
     }
 
-    level = get_previous_element_is_closed() ? 1 : 0;
+    unset_previous_element_is_closed();
+    priv_bak = *priv;
     while (priv->len) {
         switch (*priv->buf) {
             case '<': {
-                next_char(priv);
-                if (!priv->len) {
-                    return -1;
+                priv_bak = *priv;
+                if (priv->len == 1) {
+                    *priv = priv_bak;
+                    set_level(priv, level);
+                    return 1;
                 }
-                if (*priv->buf == '/') {
-                    if (!level) {
-                        while (priv->len && *priv->buf != '>') {
-                            next_char(priv);
-                        }
-                        if (!priv->len) {
-                            return -1;
-                        }
-                        next_char(priv);
-                        set_previous_element_is_closed();
-                        return 0;
-                    }
-                    level--;
-                    if (!priv->len) {
-                        return -1;
-                    }
-                    next_char(priv);
-                    break;
-                }
-                if (*priv->buf == '?') {
+                if (priv->buf[1] == '/') {
                     while (priv->len && *priv->buf != '>') {
                         next_char(priv);
                     }
                     if (!priv->len) {
-                        return -1;
+                        *priv = priv_bak;
+                        set_level(priv, level);
+                        return 1;
                     }
-                    next_char(priv);
+                    level--;
+                    if (!level) {
+                        next_char(priv);
+                        set_previous_element_is_closed();
+                        set_level(priv, 0);
+                        return 0;
+                    }
+                    priv_bak = *priv;
+                    break;
+                }
+                if (priv->buf[1] == '?') {
+                    while (priv->len && *priv->buf != '>') {
+                        next_char(priv);
+                    }
+                    if (!priv->len) {
+                        *priv = priv_bak;
+                        set_level(priv, level);
+                        return 1;
+                    }
                     set_previous_element_is_closed();
                     break;
                 }
-                if (*priv->buf == '!') {
+                if (priv->buf[1] == '!') {
                     unsigned long long probe = 0;
                     int i;
-                    for (i = 1; i < 8; i++) {
+                    if (priv->len <= 8) {
+                        *priv = priv_bak;
+                        set_level(priv, level);
+                        return 1;
+                    }
+                    for (i = 2; i <= 8; i++) {
                         probe <<= 8;
                         probe |= priv->buf[i];
                     }
-                    if (probe == 0x5B43444154415BULL) { /* "[CDATA[" */
+                    if (probe == 0x5B43444154415BULL) { /* "<![CDATA[" */
                         probe = 0;
                         priv->buf += 9;
                         priv->len -= 9;
@@ -520,39 +602,41 @@ int tfsxml_leave(tfsxml_string* priv) {
                             if (probe == 0x5D5D3EULL) { /* "]]>" */
                                 break;
                             }
-                            priv->buf++;
-                            priv->len--;
+                            next_char(priv);
+                        }
+                        if (!priv->len) {
+                            *priv = priv_bak;
+                            set_level(priv, level);
+                            return 1;
                         }
                         break;
                     }
-                    if (priv->len >= 3 && priv->buf[1] == '-' && priv->buf[2] == '-') {
-                        const char* buf = priv->buf + 3;
-                        int len_sav = priv->len;
-                        int len = priv->len - 3;
+                    if ((probe >> 40) == 0x2D2D) { /* "<!--" */
                         probe = 0;
-                        while (len) {
+                        priv->buf += 4;
+                        priv->len -= 4;
+                        while (priv->len) {
                             probe &= 0xFFFF;
                             probe <<= 8;
-                            probe |= *buf;
+                            probe |= *priv->buf;
                             if (probe == 0x2D2D3EULL) /* "-->" */
                                 break;
-                            buf++;
-                            len--;
+                            next_char(priv);
                         }
-                        len = len_sav - len;
-                        priv->buf += len;
-                        priv->len -= len;
                         if (!priv->len) {
-                            return -1;
+                            *priv = priv_bak;
+                            set_level(priv, level);
+                            return 1;
                         }
-                        next_char(priv);
                         break;
                     }
                     while (priv->len && *priv->buf != '>') {
                         next_char(priv);
                     }
                     if (!priv->len) {
-                        return -1;
+                        *priv = priv_bak;
+                        set_level(priv, level);
+                        return 1;
                     }
                     next_char(priv);
                     break;
@@ -561,7 +645,9 @@ int tfsxml_leave(tfsxml_string* priv) {
                     int split;
 
                     if (!priv->len) {
-                        return -1;
+                        *priv = priv_bak;
+                        set_level(priv, level);
+                        return 1;
                     }
 
                     split = 0;
@@ -586,20 +672,24 @@ int tfsxml_leave(tfsxml_string* priv) {
                 }
                 int result = tfsxml_leave_element_header(priv);
                 if (result) {
+                    set_is_in_element_header();
+                    unset_previous_element_is_closed();
+                    set_level(priv, level);
                     return result;
                 }
                 if (!get_previous_element_is_closed()) {
                     level++;
                     unset_previous_element_is_closed();
                 }
-                break;
+                continue;
             }
             default: {
-                next_char(priv);
             }
         }
+        next_char(priv);
     }
-    return -1;
+    set_level(priv, level);
+    return 1;
 }
 
 static const char* const tfsxml_decode_markup[2] = {
@@ -735,6 +825,33 @@ void tfsxml_decode(void* s, const tfsxml_string* v, void (*func)(void*, const ch
                         replaced++;
                     }
                 }
+            }
+        }
+        if (*buf == '<' && len > 8) {
+            unsigned long long probe = 0;
+            int i;
+            for (i = 1; i <= 8; i++) {
+                probe <<= 8;
+                probe |= buf[i];
+            }
+            if (probe == 0x215B43444154415BULL) { /* "<![CDATA[" */
+                func(s, buf_begin, buf - buf_begin);
+                probe = 0;
+                buf += 9;
+                len -= 9;
+                buf_begin = buf;
+                while (len) {
+                    probe &= 0xFFFF;
+                    probe <<= 8;
+                    probe |= *buf;
+                    if (probe == 0x5D5D3EULL) { /* "]]>" */
+                        break;
+                    }
+                    buf++;
+                    len--;
+                }
+                func(s, buf_begin, buf - 2 - buf_begin);
+                buf_begin = buf + 1;
             }
         }
         buf++;

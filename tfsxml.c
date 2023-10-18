@@ -140,8 +140,12 @@ tfsxml_string tfsxml_strstr_charp(tfsxml_string a, const char* b) {
     return a;
 }
 
-int tfsxml_init(tfsxml_string* priv, const void* buf, unsigned len) {
+int tfsxml_init(tfsxml_string* priv, const void* buf, unsigned len, unsigned version) {
     const char* buf_8 = (const char*)buf;
+
+    if (version != 0) {
+        return -1;
+    }
 
     /* BOM detection */
     if (len > 3

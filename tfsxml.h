@@ -54,13 +54,14 @@ typedef struct tfsxml_string {
 
 /** Initialize the parser
  *
- * @param priv  pointer to a tfsxml_string dedicated instance, private use by the parser
- * @param buf  pointer to start of the buffer
- * @param len  length of the buffer
+ * @param priv      pointer to a tfsxml_string dedicated instance, private use by the parser
+ * @param buf       pointer to start of the buffer
+ * @param len       length of the buffer
+ * @param version   API version supported by the client
  *
  * @note after init, priv should not be directly used (data may be something else than a buf/len pair)
  */
-int tfsxml_init(tfsxml_string* priv, const void* buf, unsigned len);
+int tfsxml_init(tfsxml_string* priv, const void* buf, unsigned len, unsigned version);
 
 /** Get next element or other content except an element value
  *

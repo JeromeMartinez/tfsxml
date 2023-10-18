@@ -48,8 +48,8 @@ extern "C"
  */
 typedef struct tfsxml_string {
     const char* buf;
-    int         len;
-    int         flags;
+    unsigned    len;
+    unsigned    flags;
 } tfsxml_string;
 
 /** Initialize the parser
@@ -60,7 +60,7 @@ typedef struct tfsxml_string {
  *
  * @note after init, priv should not be directly used (data may be something else than a buf/len pair)
  */
-int tfsxml_init(tfsxml_string* priv, const void* buf, int len);
+int tfsxml_init(tfsxml_string* priv, const void* buf, unsigned len);
 
 /** Get next element or other content except an element value
  *
@@ -124,17 +124,17 @@ int tfsxml_leave(tfsxml_string* priv);
 
 /** Convert encoded XML block (attribute or value) to real content (encoded in UTF-8)
  *
- * @param s  opaque data transmitted to func
- * @param b  XML content to decode
- * @param func  function that will receive blocks of decoded content
+ * @param s         opaque data transmitted to func
+ * @param v         XML content to decode
+ * @param func      append function that will receive blocks of decoded content
  *
- * @param func_s  s
- * @param buf  decoded content
- * @param len  length of the decoded content
+ * @param func_s    string to append to
+ * @param func_buf  decoded content
+ * @param func_len  length of the decoded content
  *
  * @note see tfsxml_decode_string C++ function for an example of usage
  */
-void tfsxml_decode(void* s, const tfsxml_string* v, void (*func)(void* func_s, const char* func_buf, int func_len));
+void tfsxml_decode(void* s, const tfsxml_string* v, void (*func)(void* func_s, const char* func_buf, unsigned func_len));
 
 /** -------------------------------------------------------------------------
         Helper functions related to tfsxml_string
@@ -165,7 +165,7 @@ tfsxml_string tfsxml_strstr_charp(tfsxml_string a, const char* b);
 #ifdef __cplusplus
 #include <string>
 
-static void tfsxml_decode_string(void* d, const char* buf, int len) { ((std::string*)d)->append(buf, len); }
+static void tfsxml_decode_string(void* d, const char* buf, unsigned len) { ((std::string*)d)->append(buf, len); }
 
 /** Convert encoded XML block (attribute or value) to real content (encoded in UTF-8)
  *

@@ -140,7 +140,7 @@ tfsxml_string tfsxml_strstr_charp(tfsxml_string a, const char* b) {
     return a;
 }
 
-int tfsxml_init(tfsxml_string* priv, const void* buf, int len) {
+int tfsxml_init(tfsxml_string* priv, const void* buf, unsigned len) {
     const char* buf_8 = (const char*)buf;
 
     /* BOM detection */
@@ -421,7 +421,7 @@ int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v) {
 
 int tfsxml_value(tfsxml_string* priv, tfsxml_string* v) {
     tfsxml_string priv_bak;
-    int len_sav;
+    unsigned len_sav;
 
     /* Exiting previous element header analysis if needed */
     if (get_is_in_element_header()) {
@@ -522,7 +522,7 @@ int tfsxml_enter(tfsxml_string* priv) {
 
 int tfsxml_leave(tfsxml_string* priv) {
     tfsxml_string priv_bak;
-    int level;
+    unsigned level;
 
     get_level(priv, &level);
 
@@ -697,10 +697,10 @@ static const char* const tfsxml_decode_markup[2] = {
     "&'><\"",
 };
 
-void tfsxml_decode(void* s, const tfsxml_string* v, void (*func)(void*, const char*, int)) {
+void tfsxml_decode(void* s, const tfsxml_string* v, void (*func)(void*, const char*, unsigned)) {
     const char* buf_begin;
     const char* buf = v->buf;
-    int len = v->len;
+    unsigned len = v->len;
 
     if (!(v->flags & 1)) {
         func(s, buf, len);
@@ -718,7 +718,7 @@ void tfsxml_decode(void* s, const tfsxml_string* v, void (*func)(void*, const ch
             }
             if (len_end) {
                 const char* buf_beg = buf + 1;
-                int len_beg = buf_end - buf_beg;
+                unsigned len_beg = buf_end - buf_beg;
                 if (len_beg && *buf_beg == '#') {
                     unsigned long value = 0;
                     buf_beg++;

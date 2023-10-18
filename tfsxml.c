@@ -37,7 +37,7 @@ SOFTWARE.
 /*
  * priv flags :
  * 0: is inside an element header
- * 1: previous element is closed
+ * 1: previous element is open (potentially with sub elements)
  */
 
 /*
@@ -60,9 +60,9 @@ static inline void unset_flag(tfsxml_string* priv, int offset) {
 #define set_is_in_element_header() set_flag(priv, 0)
 #define get_is_in_element_header() get_flag(priv, 0)
 #define unset_is_in_element_header() unset_flag(priv, 0)
-#define set_previous_element_is_closed() set_flag(priv, 1)
-#define get_previous_element_is_closed() get_flag(priv, 1)
-#define unset_previous_element_is_closed() unset_flag(priv, 1)
+#define set_previous_element_is_open() set_flag(priv, 1)
+#define get_previous_element_is_open() get_flag(priv, 1)
+#define unset_previous_element_is_open() unset_flag(priv, 1)
 
 #define set_must_be_decoded() set_flag(v, 0)
 
@@ -162,7 +162,6 @@ int tfsxml_init(tfsxml_string* priv, const void* buf, unsigned len) {
     priv->buf = (const char*)buf;
     priv->len = len;
     priv->flags = 0;
-    set_previous_element_is_closed();
 
     return 0;
 }
@@ -182,8 +181,8 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n) {
     }
 
     /* Leaving previous element content if needed */
-    if (level || !get_previous_element_is_closed()) {
-        if (!level && !get_previous_element_is_closed()) {
+    if (level || get_previous_element_is_open()) {
+        if (!level && get_previous_element_is_open()) {
             level++;
             set_level(priv, level);
         }
@@ -214,7 +213,7 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n) {
                     }
                     if (!level) {
                         next_char(priv);
-                        set_previous_element_is_closed();
+                        unset_previous_element_is_open();
                         set_level(priv, level);
                         return -1;
                     }
@@ -234,7 +233,7 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n) {
                     }
                     n->len = priv->buf - n->buf;
                     next_char(priv);
-                    set_previous_element_is_closed();
+                    unset_previous_element_is_open();
                     set_level(priv, 0);
                     return 0;
                 }
@@ -290,7 +289,7 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n) {
                         }
                         n->len = priv->buf - n->buf;
                         next_char(priv);
-                        set_previous_element_is_closed();
+                        unset_previous_element_is_open();
                         set_level(priv, 0);
                         return 0;
                     }
@@ -305,7 +304,7 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n) {
                     n->buf = priv_bak.buf;
                     n->len = priv->buf - n->buf;
                     next_char(priv);
-                    set_previous_element_is_closed();
+                    unset_previous_element_is_open();
                     set_level(priv, 0);
                     return 0;
                 }
@@ -328,7 +327,7 @@ int tfsxml_next(tfsxml_string* priv, tfsxml_string* n) {
                             case '>':
                                 n->len = priv->buf - n->buf;
                                 set_is_in_element_header();
-                                unset_previous_element_is_closed();
+                                set_previous_element_is_open();
                                 set_level(priv, 0);
                                 return 0;
                             default: {
@@ -359,7 +358,7 @@ int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v) {
     while (priv->len) {
         switch (*priv->buf) {
             case '/': {
-                set_previous_element_is_closed();
+                unset_previous_element_is_open();
                 //fall through
             }
             case '\n':
@@ -374,7 +373,7 @@ int tfsxml_attr(tfsxml_string* priv, tfsxml_string* n, tfsxml_string* v) {
                 return -1;
             }
             default: {
-                if (get_previous_element_is_closed()) {
+                if (!get_previous_element_is_open()) {
                     break; // Junk after "/", ignoring
                 }
 
@@ -431,7 +430,7 @@ int tfsxml_value(tfsxml_string* priv, tfsxml_string* v) {
         }
 
         /* Previous element must not be finished */
-        if (get_previous_element_is_closed()) {
+        if (!get_previous_element_is_open()) {
             return -1;
         }
     }
@@ -484,7 +483,7 @@ int tfsxml_value(tfsxml_string* priv, tfsxml_string* v) {
                 }
                 v->len = len_sav - priv->len;
                 v->buf = priv->buf - v->len;
-                unset_previous_element_is_closed();
+                set_previous_element_is_open();
                 set_level(priv, 1);
                 int result = tfsxml_leave(priv);
                 if (result) {
@@ -512,11 +511,11 @@ int tfsxml_enter(tfsxml_string* priv) {
     }
 
     /* Previous element must not be finished */
-    if (get_previous_element_is_closed()) {
+    if (!get_previous_element_is_open()) {
         return -1;
     }
 
-    set_previous_element_is_closed();
+    unset_previous_element_is_open();
     return 0;
 }
 
@@ -532,12 +531,12 @@ int tfsxml_leave(tfsxml_string* priv) {
         if (result) {
             return result;
         }
-        if (!get_previous_element_is_closed()) {
+        if (get_previous_element_is_open()) {
             level++;
         }
     }
 
-    unset_previous_element_is_closed();
+    set_previous_element_is_open();
     priv_bak = *priv;
     while (priv->len) {
         switch (*priv->buf) {
@@ -560,7 +559,7 @@ int tfsxml_leave(tfsxml_string* priv) {
                     level--;
                     if (!level) {
                         next_char(priv);
-                        set_previous_element_is_closed();
+                        unset_previous_element_is_open();
                         set_level(priv, 0);
                         return 0;
                     }
@@ -576,7 +575,7 @@ int tfsxml_leave(tfsxml_string* priv) {
                         set_level(priv, level);
                         return 1;
                     }
-                    set_previous_element_is_closed();
+                    unset_previous_element_is_open();
                     break;
                 }
                 if (priv->buf[1] == '!') {
@@ -659,7 +658,7 @@ int tfsxml_leave(tfsxml_string* priv) {
                         case '/':
                         case '>': {
                             set_is_in_element_header();
-                            unset_previous_element_is_closed();
+                            set_previous_element_is_open();
                             split = 1;
                             break;
                         }
@@ -673,13 +672,13 @@ int tfsxml_leave(tfsxml_string* priv) {
                 int result = tfsxml_leave_element_header(priv);
                 if (result) {
                     set_is_in_element_header();
-                    unset_previous_element_is_closed();
+                    set_previous_element_is_open();
                     set_level(priv, level);
                     return result;
                 }
-                if (!get_previous_element_is_closed()) {
+                if (get_previous_element_is_open()) {
                     level++;
-                    unset_previous_element_is_closed();
+                    set_previous_element_is_open();
                 }
                 continue;
             }
